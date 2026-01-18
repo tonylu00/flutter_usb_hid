@@ -14,13 +14,18 @@ class MockUsbHidPlatform with MockPlatformInterfaceMixin implements UsbHidPlatfo
   Future<void> closeDevice(HidDeviceHandle handle) async {}
 
   @override
-  Future<Uint8List?> getFeatureReport(HidDeviceHandle handle, int reportId, int reportLength) async => null;
+  Future<Uint8List?> getFeatureReport(
+    HidDeviceHandle handle,
+    int reportId,
+    int reportLength,
+  ) async => null;
 
   @override
   Future<List<HidDeviceInfo>> listDevices({List<HidDeviceFilter>? filters}) async => const [];
 
   @override
-  Future<HidDeviceHandle> openDevice(HidDeviceInfo device) async => HidDeviceHandle(deviceId: device.id, handle: 1);
+  Future<HidDeviceHandle> openDevice(HidDeviceInfo device) async =>
+      HidDeviceHandle(deviceId: device.id, handle: 1);
 
   @override
   Future<HidDeviceInfo?> requestDevice({required List<HidDeviceFilter> filters}) async => null;
@@ -29,7 +34,8 @@ class MockUsbHidPlatform with MockPlatformInterfaceMixin implements UsbHidPlatfo
   Future<void> sendFeatureReport(HidDeviceHandle handle, int reportId, Uint8List data) async {}
 
   @override
-  Future<int> sendOutputReport(HidDeviceHandle handle, int reportId, Uint8List data) async => data.length;
+  Future<int> sendOutputReport(HidDeviceHandle handle, int reportId, Uint8List data) async =>
+      data.length;
 }
 
 void main() {

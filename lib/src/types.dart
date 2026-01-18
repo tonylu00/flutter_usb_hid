@@ -9,12 +9,9 @@ class HidDeviceFilter {
   final int? usagePage;
   final int? usage;
 
-  Map<String, Object?> toMap() => {
-        'vendorId': vendorId,
-        'productId': productId,
-        'usagePage': usagePage,
-        'usage': usage,
-      }..removeWhere((_, value) => value == null);
+  Map<String, Object?> toMap() =>
+      {'vendorId': vendorId, 'productId': productId, 'usagePage': usagePage, 'usage': usage}
+        ..removeWhere((_, value) => value == null);
 
   factory HidDeviceFilter.fromMap(Map<dynamic, dynamic> map) {
     return HidDeviceFilter(
@@ -58,19 +55,19 @@ class HidDeviceInfo {
   final bool opened;
 
   Map<String, Object?> toMap() => {
-        'id': id,
-        'vendorId': vendorId,
-        'productId': productId,
-        'productName': productName,
-        'manufacturerName': manufacturerName,
-        'serialNumber': serialNumber,
-        'usagePage': usagePage,
-        'usage': usage,
-        'interfaceNumber': interfaceNumber,
-        'busNumber': busNumber,
-        'deviceAddress': deviceAddress,
-        'opened': opened,
-      }..removeWhere((_, value) => value == null);
+    'id': id,
+    'vendorId': vendorId,
+    'productId': productId,
+    'productName': productName,
+    'manufacturerName': manufacturerName,
+    'serialNumber': serialNumber,
+    'usagePage': usagePage,
+    'usage': usage,
+    'interfaceNumber': interfaceNumber,
+    'busNumber': busNumber,
+    'deviceAddress': deviceAddress,
+    'opened': opened,
+  }..removeWhere((_, value) => value == null);
 
   factory HidDeviceInfo.fromMap(Map<dynamic, dynamic> map) {
     return HidDeviceInfo(

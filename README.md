@@ -4,10 +4,11 @@ Cross-platform USB HID plugin built on platform channels with WebHID support.
 
 ## Status
 
-- Web: implemented via WebHID (enumeration, `requestDevice`, open/close, output and feature reports, input report stream).
+- Web: implemented via WebHID (enumeration, `requestDevice`, open/close, output and feature reports, input report stream). Uses the MDN-documented `navigator.hid` API and reads usage/usagePage from the first collection; `requestDevice` returns the first selected device when the browser returns a list.
 - Windows: implemented with Win32 HID APIs (enumeration, open/close, output and feature reports, input report stream).
 - macOS: implemented with IOHID (enumeration, open/close, output and feature reports, input report stream).
 - Android: implemented with USB host HID (enumeration, permission prompt via `requestDevice`, open/close, output and feature reports, input report stream).
+- Linux: implemented with hidapi (hidraw) for enumeration, open/close, output and feature reports, input report stream. Requires `libhidapi-hidraw` (or distro equivalent) at build time.
 
 ## Usage
 

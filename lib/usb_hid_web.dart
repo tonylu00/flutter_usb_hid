@@ -25,7 +25,10 @@ class UsbHidWeb extends UsbHidPlatform {
 
   void _assertHidAvailable() {
     if (_hid == null) {
-      throw PlatformException(code: 'webhid_unavailable', message: 'This browser does not expose navigator.hid');
+      throw PlatformException(
+        code: 'webhid_unavailable',
+        message: 'This browser does not expose navigator.hid',
+      );
     }
   }
 
@@ -49,23 +52,20 @@ class UsbHidWeb extends UsbHidPlatform {
   @override
   Future<HidDeviceInfo?> requestDevice({required List<HidDeviceFilter> filters}) async {
     _assertHidAvailable();
-    final jsFilters = filters.map((f) => f.toMap()..removeWhere((_, value) => value == null)).toList();
-    final jsDevice = await js_util.promiseToFuture<Object?>(
-      js_util.callMethod(
-        _hid,
-        'requestDevice',
-        [
-          {
-            'filters': jsFilters,
-          },
-        ],
-      ),
+    final jsFilters = filters
+        .map((f) => f.toMap()..removeWhere((_, value) => value == null))
+        .toList();
+    final result = await js_util.promiseToFuture<Object?>(
+      js_util.callMethod(_hid, 'requestDevice', [
+        {'filters': jsFilters},
+      ]),
     );
 
-    if (jsDevice == null) {
+    final selected = _firstDeviceFromResult(result);
+    if (selected == null) {
       return null;
     }
-    return _deviceInfoFromJs(jsDevice);
+    return _deviceInfoFromJs(selected);
   }
 
   @override
@@ -73,7 +73,10 @@ class UsbHidWeb extends UsbHidPlatform {
     _assertHidAvailable();
     final jsDevice = await _findDevice(device.id);
     if (jsDevice == null) {
-      throw PlatformException(code: 'device_not_found', message: 'Device ${device.id} is not available');
+      throw PlatformException(
+        code: 'device_not_found',
+        message: 'Device ${device.id} is not available',
+      );
     }
 
     final opened = js_util.getProperty<bool?>(jsDevice, 'opened') ?? false;
@@ -93,7 +96,11 @@ class UsbHidWeb extends UsbHidPlatform {
     });
 
     js_util.callMethod(jsDevice, 'addEventListener', ['inputreport', listener]);
-    _openDevices[handleId] = _WebHidDeviceHandle(deviceId: device.id, jsDevice: jsDevice, inputListener: listener);
+    _openDevices[handleId] = _WebHidDeviceHandle(
+      deviceId: device.id,
+      jsDevice: jsDevice,
+      inputListener: listener,
+    );
     return HidDeviceHandle(deviceId: device.id, handle: handleId);
   }
 
@@ -115,7 +122,10 @@ class UsbHidWeb extends UsbHidPlatform {
     if (entry == null) {
       throw PlatformException(code: 'not_open', message: 'Device not open');
     }
-    final jsData = js_util.callConstructor(js_util.getProperty(js_util.globalThis, 'Uint8Array') as Object, [data]);
+    final jsData = js_util.callConstructor(
+      js_util.getProperty(js_util.globalThis, 'Uint8Array') as Object,
+      [data],
+    );
     await js_util.promiseToFuture<void>(
       js_util.callMethod(entry.jsDevice, 'sendReport', [reportId, jsData]),
     );
@@ -129,14 +139,21 @@ class UsbHidWeb extends UsbHidPlatform {
     if (entry == null) {
       throw PlatformException(code: 'not_open', message: 'Device not open');
     }
-    final jsData = js_util.callConstructor(js_util.getProperty(js_util.globalThis, 'Uint8Array') as Object, [data]);
+    final jsData = js_util.callConstructor(
+      js_util.getProperty(js_util.globalThis, 'Uint8Array') as Object,
+      [data],
+    );
     await js_util.promiseToFuture<void>(
       js_util.callMethod(entry.jsDevice, 'sendFeatureReport', [reportId, jsData]),
     );
   }
 
   @override
-  Future<Uint8List?> getFeatureReport(HidDeviceHandle handle, int reportId, int reportLength) async {
+  Future<Uint8List?> getFeatureReport(
+    HidDeviceHandle handle,
+    int reportId,
+    int reportLength,
+  ) async {
     _assertHidAvailable();
     final entry = _openDevices[handle.handle];
     if (entry == null) {
@@ -170,6 +187,7 @@ class UsbHidWeb extends UsbHidPlatform {
     final productName = js_util.getProperty<String?>(jsDevice, 'productName');
     final manufacturerName = js_util.getProperty<String?>(jsDevice, 'manufacturerName');
     final serialNumber = js_util.getProperty<String?>(jsDevice, 'serialNumber');
+    final usageInfo = _primaryUsageFromCollections(jsDevice);
     final opened = js_util.getProperty<bool?>(jsDevice, 'opened') ?? false;
 
     return HidDeviceInfo(
@@ -179,6 +197,8 @@ class UsbHidWeb extends UsbHidPlatform {
       productName: productName,
       manufacturerName: manufacturerName,
       serialNumber: serialNumber,
+      usagePage: usageInfo.$1,
+      usage: usageInfo.$2,
       opened: opened,
     );
   }
@@ -210,10 +230,35 @@ class UsbHidWeb extends UsbHidPlatform {
     }
     return buffer;
   }
+
+  Object? _firstDeviceFromResult(Object? result) {
+    if (result == null) return null;
+    if (result is List && result.isNotEmpty) {
+      return result.first;
+    }
+    return result;
+  }
+
+  (int?, int?) _primaryUsageFromCollections(Object jsDevice) {
+    final collections = js_util.getProperty<Object?>(jsDevice, 'collections');
+    if (collections is List && collections.isNotEmpty) {
+      final first = collections.first;
+      if (first != null) {
+        final usagePage = js_util.getProperty<num?>(first, 'usagePage');
+        final usage = js_util.getProperty<num?>(first, 'usage');
+        return (usagePage?.toInt(), usage?.toInt());
+      }
+    }
+    return (null, null);
+  }
 }
 
 class _WebHidDeviceHandle {
-  _WebHidDeviceHandle({required this.deviceId, required this.jsDevice, required this.inputListener});
+  _WebHidDeviceHandle({
+    required this.deviceId,
+    required this.jsDevice,
+    required this.inputListener,
+  });
 
   final String deviceId;
   final Object jsDevice;

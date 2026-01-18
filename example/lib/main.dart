@@ -36,9 +36,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _requestDevice() async {
-    final result = await _usbHidPlugin.requestDevice(
-      filters: const [HidDeviceFilter()],
-    );
+    final result = await _usbHidPlugin.requestDevice(filters: const [HidDeviceFilter()]);
     if (!mounted) return;
     setState(() => _requested = result);
     if (result == null) return;
@@ -48,7 +46,8 @@ class _MyAppState extends State<MyApp> {
     await _inputSub?.cancel();
     _inputSub = _session!.inputReports.listen((event) {
       setState(() {
-        _lastReport = 'device=${event.deviceId} report=${event.reportId} length=${event.data.length}';
+        _lastReport =
+            'device=${event.deviceId} report=${event.reportId} length=${event.data.length}';
       });
     });
   }
@@ -64,31 +63,22 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Plugin example app'),
-        ),
+        appBar: AppBar(title: const Text('Plugin example app')),
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ElevatedButton(
-                onPressed: _requestDevice,
-                child: const Text('Request device'),
-              ),
+              ElevatedButton(onPressed: _requestDevice, child: const Text('Request device')),
               const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: _refreshDevices,
-                child: const Text('Refresh devices'),
-              ),
+              ElevatedButton(onPressed: _refreshDevices, child: const Text('Refresh devices')),
               const SizedBox(height: 16),
               Text('Devices (${_devices.length}):'),
-              ..._devices
-                  .map(
-                    (d) => Text(
-                      '${d.id} v=${d.vendorId.toRadixString(16)} p=${d.productId.toRadixString(16)}',
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
+              ..._devices.map(
+                (d) => Text(
+                  '${d.id} v=${d.vendorId.toRadixString(16)} p=${d.productId.toRadixString(16)}',
+                  textAlign: TextAlign.center,
+                ),
+              ),
               const SizedBox(height: 16),
               Text('Requested: ${_requested?.id ?? 'none'}'),
               const SizedBox(height: 8),

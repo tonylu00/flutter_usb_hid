@@ -29,7 +29,8 @@ class UsbHid {
 
 /// Handle for operations targeting a specific device.
 class HidDevice {
-  HidDevice._({required UsbHidPlatform platform, required this.info, required this.handle}) : _platform = platform;
+  HidDevice._({required UsbHidPlatform platform, required this.info, required this.handle})
+    : _platform = platform;
 
   final UsbHidPlatform _platform;
   final HidDeviceInfo info;
@@ -47,7 +48,8 @@ class HidDevice {
     return _platform.getFeatureReport(handle, reportId, reportLength);
   }
 
-  Stream<HidInputReport> get inputReports => _platform.inputReports.where((event) => event.deviceId == info.id);
+  Stream<HidInputReport> get inputReports =>
+      _platform.inputReports.where((event) => event.deviceId == info.id);
 
   Future<void> close() => _platform.closeDevice(handle);
 }

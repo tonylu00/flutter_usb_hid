@@ -18,12 +18,9 @@ class MethodChannelUsbHid extends UsbHidPlatform {
 
   @override
   Future<List<HidDeviceInfo>> listDevices({List<HidDeviceFilter>? filters}) async {
-    final response = await methodChannel.invokeListMethod<Object?>(
-      'listDevices',
-      {
-        'filters': filters?.map((filter) => filter.toMap()).toList(),
-      },
-    );
+    final response = await methodChannel.invokeListMethod<Object?>('listDevices', {
+      'filters': filters?.map((filter) => filter.toMap()).toList(),
+    });
 
     return (response ?? const <Object?>[])
         .map((entry) => HidDeviceInfo.fromMap(entry as Map<dynamic, dynamic>))
@@ -32,12 +29,9 @@ class MethodChannelUsbHid extends UsbHidPlatform {
 
   @override
   Future<HidDeviceInfo?> requestDevice({required List<HidDeviceFilter> filters}) async {
-    final response = await methodChannel.invokeMapMethod<String, Object?>(
-      'requestDevice',
-      {
-        'filters': filters.map((filter) => filter.toMap()).toList(),
-      },
-    );
+    final response = await methodChannel.invokeMapMethod<String, Object?>('requestDevice', {
+      'filters': filters.map((filter) => filter.toMap()).toList(),
+    });
 
     if (response == null) {
       return null;
@@ -47,22 +41,18 @@ class MethodChannelUsbHid extends UsbHidPlatform {
 
   @override
   Future<HidDeviceHandle> openDevice(HidDeviceInfo device) async {
-    final response = await methodChannel.invokeMapMethod<String, Object?>(
-      'openDevice',
-      {
-        'device': device.toMap(),
-      },
-    );
-    final handle = (response?['handle'] as int?) ??
+    final response = await methodChannel.invokeMapMethod<String, Object?>('openDevice', {
+      'device': device.toMap(),
+    });
+    final handle =
+        (response?['handle'] as int?) ??
         (throw PlatformException(code: 'no_handle', message: 'Platform failed to return a handle'));
     return HidDeviceHandle(deviceId: device.id, handle: handle);
   }
 
   @override
   Future<void> closeDevice(HidDeviceHandle handle) {
-    return methodChannel.invokeMethod<void>('closeDevice', {
-      'handle': handle.handle,
-    });
+    return methodChannel.invokeMethod<void>('closeDevice', {'handle': handle.handle});
   }
 
   @override
@@ -85,15 +75,16 @@ class MethodChannelUsbHid extends UsbHidPlatform {
   }
 
   @override
-  Future<Uint8List?> getFeatureReport(HidDeviceHandle handle, int reportId, int reportLength) async {
-    final response = await methodChannel.invokeMethod<Object?>(
-      'getFeatureReport',
-      {
-        'handle': handle.handle,
-        'reportId': reportId,
-        'length': reportLength,
-      },
-    );
+  Future<Uint8List?> getFeatureReport(
+    HidDeviceHandle handle,
+    int reportId,
+    int reportLength,
+  ) async {
+    final response = await methodChannel.invokeMethod<Object?>('getFeatureReport', {
+      'handle': handle.handle,
+      'reportId': reportId,
+      'length': reportLength,
+    });
 
     if (response == null) {
       return null;
@@ -107,7 +98,10 @@ class MethodChannelUsbHid extends UsbHidPlatform {
       return Uint8List.fromList(response);
     }
 
-    throw PlatformException(code: 'invalid_response', message: 'Unexpected feature report payload type ${response.runtimeType}');
+    throw PlatformException(
+      code: 'invalid_response',
+      message: 'Unexpected feature report payload type ${response.runtimeType}',
+    );
   }
 
   @override
@@ -121,9 +115,16 @@ class MethodChannelUsbHid extends UsbHidPlatform {
         return HidInputReport(deviceId: deviceId, reportId: reportId, data: data);
       }
       if (data is List<int>) {
-        return HidInputReport(deviceId: deviceId, reportId: reportId, data: Uint8List.fromList(data));
+        return HidInputReport(
+          deviceId: deviceId,
+          reportId: reportId,
+          data: Uint8List.fromList(data),
+        );
       }
-      throw PlatformException(code: 'invalid_event', message: 'Unexpected input report payload ${data.runtimeType}');
+      throw PlatformException(
+        code: 'invalid_event',
+        message: 'Unexpected input report payload ${data.runtimeType}',
+      );
     });
     return _inputReports!;
   }
