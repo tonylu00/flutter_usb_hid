@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  package="com.dalimaster.usb_hid">
+
+  <uses-feature android:name="android.hardware.usb.host" />
+</manifest>

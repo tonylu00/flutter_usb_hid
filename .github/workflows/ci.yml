@@ -1,0 +1,42 @@
+name: usb_hid CI
+
+on:
+  push:
+    paths:
+      - 'packages/usb_hid/**'
+  pull_request:
+    paths:
+      - 'packages/usb_hid/**'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/usb_hid
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get (plugin)
+        run: flutter pub get
+
+      - name: Flutter pub get (example)
+        run: flutter pub get
+        working-directory: packages/usb_hid/example
+
+      - name: Flutter analyze
+        run: flutter analyze
+
+      - name: Flutter tests
+        run: flutter test
+
+      - name: Build example for web
+        run: flutter build web
+        working-directory: packages/usb_hid/example
