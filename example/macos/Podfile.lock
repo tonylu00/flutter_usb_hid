@@ -1,0 +1,22 @@
+PODS:
+  - FlutterMacOS (1.0.0)
+  - usb_hid (0.0.1):
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - usb_hid (from `Flutter/ephemeral/.symlinks/plugins/usb_hid/macos`)
+
+EXTERNAL SOURCES:
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  usb_hid:
+    :path: Flutter/ephemeral/.symlinks/plugins/usb_hid/macos
+
+SPEC CHECKSUMS:
+  FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
+  usb_hid: 1a9cb5ff28286bc39151cc1032fc63c126396d7f
+
+PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
+
+COCOAPODS: 1.16.2

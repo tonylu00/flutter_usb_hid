@@ -5,23 +5,18 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:usb_hid_example/main.dart';
 
 void main() {
-  testWidgets('Verify Platform version', (WidgetTester tester) async {
+  testWidgets('App renders device list UI', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const MyApp());
 
-    // Verify that platform version is retrieved.
-    expect(
-      find.byWidgetPredicate(
-        (Widget widget) => widget is Text &&
-                           widget.data!.startsWith('Running on:'),
-      ),
-      findsOneWidget,
-    );
+    // Verify the app bar title and main action buttons are present.
+    expect(find.text('Plugin example app'), findsOneWidget);
+    expect(find.text('Request device'), findsOneWidget);
+    expect(find.text('Refresh devices'), findsOneWidget);
   });
 }
