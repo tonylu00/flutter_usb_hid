@@ -1,11 +1,10 @@
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:async';
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
-// ignore: deprecated_member_use
-import 'package:js/js_util.dart' as js_util;
-import 'package:web/web.dart' as web;
 
 import 'src/types.dart';
 import 'usb_hid_platform_interface.dart';
@@ -21,7 +20,8 @@ class UsbHidWeb extends UsbHidPlatform {
   final _openDevices = <int, _WebHidDeviceHandle>{};
   int _nextHandle = 1;
 
-  dynamic get _hid => js_util.getProperty(web.window.navigator, 'hid');
+  JSObject? get _hid =>
+      globalContext.getProperty<JSObject?>('navigator'.toJS)?.getProperty<JSObject?>('hid'.toJS);
 
   void _assertHidAvailable() {
     if (_hid == null) {
@@ -38,11 +38,9 @@ class UsbHidWeb extends UsbHidPlatform {
   @override
   Future<List<HidDeviceInfo>> listDevices({List<HidDeviceFilter>? filters}) async {
     _assertHidAvailable();
-    final devices = await js_util.promiseToFuture<List<dynamic>>(
-      js_util.callMethod(_hid, 'getDevices', const []),
-    );
+    final devices = await _callMethod<JSPromise<JSArray<JSObject>>>(_hid!, 'getDevices').toDart;
 
-    final infos = devices.map((dynamic entry) => _deviceInfoFromJs(entry as Object)).toList();
+    final infos = devices.toDart.map(_deviceInfoFromJs).toList();
     if (filters == null || filters.isEmpty) {
       return infos;
     }
@@ -55,11 +53,9 @@ class UsbHidWeb extends UsbHidPlatform {
     final jsFilters = filters
         .map((f) => f.toMap()..removeWhere((_, value) => value == null))
         .toList();
-    final result = await js_util.promiseToFuture<Object?>(
-      js_util.callMethod(_hid, 'requestDevice', [
-        {'filters': jsFilters},
-      ]),
-    );
+    final result = await _callMethod<JSPromise<JSAny?>>(_hid!, 'requestDevice', [
+      <String, Object?>{'filters': jsFilters}.jsify(),
+    ]).toDart;
 
     final selected = _firstDeviceFromResult(result);
     if (selected == null) {
@@ -79,23 +75,24 @@ class UsbHidWeb extends UsbHidPlatform {
       );
     }
 
-    final opened = js_util.getProperty<bool?>(jsDevice, 'opened') ?? false;
+    final opened = _getBool(jsDevice, 'opened') ?? false;
     if (!opened) {
-      await js_util.promiseToFuture<void>(js_util.callMethod(jsDevice, 'open', const []));
+      await _callMethod<JSPromise<JSAny?>>(jsDevice, 'open').toDart;
     }
 
     final handleId = _nextHandle++;
-    final listener = js_util.allowInterop((dynamic event) {
-      final reportId = js_util.getProperty<int?>(event, 'reportId') ?? 0;
-      final dataView = js_util.getProperty<Object?>(event, 'data');
+    final listener = ((JSAny event) {
+      final eventObject = event as JSObject;
+      final reportId = _getInt(eventObject, 'reportId') ?? 0;
+      final dataView = eventObject.getProperty<JSObject?>('data'.toJS);
       if (dataView == null) {
         return;
       }
       final payload = _dataViewToBytes(dataView);
       _inputController.add(HidInputReport(deviceId: device.id, reportId: reportId, data: payload));
-    });
+    }).toJS;
 
-    js_util.callMethod(jsDevice, 'addEventListener', ['inputreport', listener]);
+    _callMethod<JSAny?>(jsDevice, 'addEventListener', ['inputreport'.toJS, listener]);
     _openDevices[handleId] = _WebHidDeviceHandle(
       deviceId: device.id,
       jsDevice: jsDevice,
@@ -111,8 +108,11 @@ class UsbHidWeb extends UsbHidPlatform {
     if (entry == null) {
       return;
     }
-    js_util.callMethod(entry.jsDevice, 'removeEventListener', ['inputreport', entry.inputListener]);
-    await js_util.promiseToFuture<void>(js_util.callMethod(entry.jsDevice, 'close', const []));
+    _callMethod<JSAny?>(entry.jsDevice, 'removeEventListener', [
+      'inputreport'.toJS,
+      entry.inputListener,
+    ]);
+    await _callMethod<JSPromise<JSAny?>>(entry.jsDevice, 'close').toDart;
   }
 
   @override
@@ -122,13 +122,10 @@ class UsbHidWeb extends UsbHidPlatform {
     if (entry == null) {
       throw PlatformException(code: 'not_open', message: 'Device not open');
     }
-    final jsData = js_util.callConstructor(
-      js_util.getProperty(js_util.globalThis, 'Uint8Array') as Object,
-      [data],
-    );
-    await js_util.promiseToFuture<void>(
-      js_util.callMethod(entry.jsDevice, 'sendReport', [reportId, jsData]),
-    );
+    await _callMethod<JSPromise<JSAny?>>(entry.jsDevice, 'sendReport', [
+      reportId.toJS,
+      data.toJS,
+    ]).toDart;
     return data.length;
   }
 
@@ -139,13 +136,10 @@ class UsbHidWeb extends UsbHidPlatform {
     if (entry == null) {
       throw PlatformException(code: 'not_open', message: 'Device not open');
     }
-    final jsData = js_util.callConstructor(
-      js_util.getProperty(js_util.globalThis, 'Uint8Array') as Object,
-      [data],
-    );
-    await js_util.promiseToFuture<void>(
-      js_util.callMethod(entry.jsDevice, 'sendFeatureReport', [reportId, jsData]),
-    );
+    await _callMethod<JSPromise<JSAny?>>(entry.jsDevice, 'sendFeatureReport', [
+      reportId.toJS,
+      data.toJS,
+    ]).toDart;
   }
 
   @override
@@ -159,9 +153,11 @@ class UsbHidWeb extends UsbHidPlatform {
     if (entry == null) {
       throw PlatformException(code: 'not_open', message: 'Device not open');
     }
-    final dataView = await js_util.promiseToFuture<Object?>(
-      js_util.callMethod(entry.jsDevice, 'receiveFeatureReport', [reportId]),
-    );
+    final dataView = await _callMethod<JSPromise<JSObject?>>(
+      entry.jsDevice,
+      'receiveFeatureReport',
+      [reportId.toJS],
+    ).toDart;
     if (dataView == null) {
       return null;
     }
@@ -169,11 +165,9 @@ class UsbHidWeb extends UsbHidPlatform {
     return payload.length >= reportLength ? payload.sublist(0, reportLength) : payload;
   }
 
-  Future<Object?> _findDevice(String id) async {
-    final devices = await js_util.promiseToFuture<List<dynamic>>(
-      js_util.callMethod(_hid, 'getDevices', const []),
-    );
-    for (final device in devices) {
+  Future<JSObject?> _findDevice(String id) async {
+    final devices = await _callMethod<JSPromise<JSArray<JSObject>>>(_hid!, 'getDevices').toDart;
+    for (final device in devices.toDart) {
       if (_deviceId(device) == id) {
         return device;
       }
@@ -181,14 +175,14 @@ class UsbHidWeb extends UsbHidPlatform {
     return null;
   }
 
-  HidDeviceInfo _deviceInfoFromJs(Object jsDevice) {
-    final vendorId = js_util.getProperty<int?>(jsDevice, 'vendorId') ?? 0;
-    final productId = js_util.getProperty<int?>(jsDevice, 'productId') ?? 0;
-    final productName = js_util.getProperty<String?>(jsDevice, 'productName');
-    final manufacturerName = js_util.getProperty<String?>(jsDevice, 'manufacturerName');
-    final serialNumber = js_util.getProperty<String?>(jsDevice, 'serialNumber');
+  HidDeviceInfo _deviceInfoFromJs(JSObject jsDevice) {
+    final vendorId = _getInt(jsDevice, 'vendorId') ?? 0;
+    final productId = _getInt(jsDevice, 'productId') ?? 0;
+    final productName = _getString(jsDevice, 'productName');
+    final manufacturerName = _getString(jsDevice, 'manufacturerName');
+    final serialNumber = _getString(jsDevice, 'serialNumber');
     final usageInfo = _primaryUsageFromCollections(jsDevice);
-    final opened = js_util.getProperty<bool?>(jsDevice, 'opened') ?? false;
+    final opened = _getBool(jsDevice, 'opened') ?? false;
 
     return HidDeviceInfo(
       id: _deviceId(jsDevice),
@@ -203,11 +197,11 @@ class UsbHidWeb extends UsbHidPlatform {
     );
   }
 
-  String _deviceId(Object jsDevice) {
-    final vendorId = js_util.getProperty<int?>(jsDevice, 'vendorId') ?? 0;
-    final productId = js_util.getProperty<int?>(jsDevice, 'productId') ?? 0;
-    final serialNumber = js_util.getProperty<String?>(jsDevice, 'serialNumber');
-    final productName = js_util.getProperty<String?>(jsDevice, 'productName');
+  String _deviceId(JSObject jsDevice) {
+    final vendorId = _getInt(jsDevice, 'vendorId') ?? 0;
+    final productId = _getInt(jsDevice, 'productId') ?? 0;
+    final serialNumber = _getString(jsDevice, 'serialNumber');
+    final productName = _getString(jsDevice, 'productName');
     return 'web-$vendorId-$productId-${serialNumber ?? productName ?? 'unknown'}';
   }
 
@@ -221,35 +215,59 @@ class UsbHidWeb extends UsbHidPlatform {
     });
   }
 
-  Uint8List _dataViewToBytes(Object dataView) {
-    final length = js_util.getProperty<int?>(dataView, 'byteLength') ?? 0;
+  Uint8List _dataViewToBytes(JSObject dataView) {
+    final length = _getInt(dataView, 'byteLength') ?? 0;
     final buffer = Uint8List(length);
     for (var i = 0; i < length; i++) {
-      final value = js_util.callMethod<num>(dataView, 'getUint8', [i]);
-      buffer[i] = value.toInt();
+      final value = _callMethod<JSNumber>(dataView, 'getUint8', [i.toJS]);
+      buffer[i] = value.toDartInt;
     }
     return buffer;
   }
 
-  Object? _firstDeviceFromResult(Object? result) {
+  JSObject? _firstDeviceFromResult(JSAny? result) {
     if (result == null) return null;
-    if (result is List && result.isNotEmpty) {
-      return result.first;
+    if (result.isA<JSArray<JSObject>>()) {
+      final devices = (result as JSArray<JSObject>).toDart;
+      return devices.isEmpty ? null : devices.first;
     }
-    return result;
+    return result as JSObject;
   }
 
-  (int?, int?) _primaryUsageFromCollections(Object jsDevice) {
-    final collections = js_util.getProperty<Object?>(jsDevice, 'collections');
-    if (collections is List && collections.isNotEmpty) {
-      final first = collections.first;
-      if (first != null) {
-        final usagePage = js_util.getProperty<num?>(first, 'usagePage');
-        final usage = js_util.getProperty<num?>(first, 'usage');
-        return (usagePage?.toInt(), usage?.toInt());
-      }
+  (int?, int?) _primaryUsageFromCollections(JSObject jsDevice) {
+    final collections = jsDevice.getProperty<JSArray<JSObject>?>('collections'.toJS);
+    final collectionList = collections?.toDart;
+    if (collectionList != null && collectionList.isNotEmpty) {
+      final first = collectionList.first;
+      return (_getInt(first, 'usagePage'), _getInt(first, 'usage'));
     }
     return (null, null);
+  }
+
+  R _callMethod<R extends JSAny?>(
+    JSObject target,
+    String method, [
+    List<JSAny?> args = const <JSAny?>[],
+  ]) {
+    return target.callMethodVarArgs<R>(method.toJS, args);
+  }
+
+  int? _getInt(JSObject target, String property) {
+    final value = target.getProperty<JSNumber?>(property.toJS);
+    if (value == null) {
+      return null;
+    }
+    return value.toDartInt;
+  }
+
+  String? _getString(JSObject target, String property) {
+    final value = target.getProperty<JSString?>(property.toJS);
+    return value?.toDart;
+  }
+
+  bool? _getBool(JSObject target, String property) {
+    final value = target.getProperty<JSBoolean?>(property.toJS);
+    return value?.toDart;
   }
 }
 
@@ -261,6 +279,6 @@ class _WebHidDeviceHandle {
   });
 
   final String deviceId;
-  final Object jsDevice;
-  final Object inputListener;
+  final JSObject jsDevice;
+  final JSFunction inputListener;
 }
