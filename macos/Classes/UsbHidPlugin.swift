@@ -131,10 +131,11 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     buffer.initialize(repeating: 0, count: inputLen)
     handle.buffer = buffer
 
-    IOHIDDeviceRegisterInputReportCallback(target.device, buffer, inputLen, { context, resultCode, sender, reportId, report, reportLen in
+    IOHIDDeviceRegisterInputReportCallback(target.device, buffer, inputLen, { context, resultCode, sender, _, reportId, report, reportLen in
       guard let context = context else { return }
       let plugin = Unmanaged<UsbHidPlugin>.fromOpaque(context).takeUnretainedValue()
-      let deviceId = plugin.identifier(for: sender)
+      let device = sender.map { unsafeBitCast($0, to: IOHIDDevice.self) }
+      let deviceId = plugin.identifier(for: device)
       let data = Data(bytes: report, count: Int(reportLen))
       plugin.emitInputReport(deviceId: deviceId, reportId: Int(reportId), data: data)
     }, Unmanaged.passUnretained(self).toOpaque())
@@ -176,8 +177,11 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
     var buffer = Data([UInt8(reportId)])
     buffer.append(data.data)
-    let status = buffer.withUnsafeBytes { ptr in
-      IOHIDDeviceSetReport(handle.info.device, type, CFIndex(reportId), ptr.baseAddress, ptr.count)
+    let status = buffer.withUnsafeBytes { ptr -> IOReturn in
+      guard let baseAddress = ptr.bindMemory(to: UInt8.self).baseAddress else {
+      return kIOReturnBadArgument
+      }
+      return IOHIDDeviceSetReport(handle.info.device, type, CFIndex(reportId), baseAddress, ptr.count)
     }
     if status != kIOReturnSuccess {
       result(FlutterError(code: "write_failed", message: "IOHIDDeviceSetReport failed", details: status))
@@ -206,7 +210,10 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     buffer[0] = UInt8(reportId & 0xFF)
     var reportLength = buffer.count
     let status = buffer.withUnsafeMutableBytes { ptr -> IOReturn in
-      IOHIDDeviceGetReport(handle.info.device, kIOHIDReportTypeFeature, CFIndex(reportId), ptr.baseAddress, &reportLength)
+      guard let baseAddress = ptr.bindMemory(to: UInt8.self).baseAddress else {
+      return kIOReturnBadArgument
+      }
+      return IOHIDDeviceGetReport(handle.info.device, kIOHIDReportTypeFeature, CFIndex(reportId), baseAddress, &reportLength)
     }
     if status != kIOReturnSuccess {
       result(nil)
@@ -279,7 +286,7 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
   private func emitInputReport(deviceId: String, reportId: Int, data: Data) {
     guard let sink = eventSink else { return }
-    var map: [String: Any] = [
+    let map: [String: Any] = [
       "deviceId": deviceId,
       "reportId": reportId,
       "data": FlutterStandardTypedData(bytes: data)
