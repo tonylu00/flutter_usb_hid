@@ -1,6 +1,7 @@
 #ifndef FLUTTER_PLUGIN_USB_HID_PLUGIN_H_
 #define FLUTTER_PLUGIN_USB_HID_PLUGIN_H_
 
+#include <flutter/encodable_value.h>
 #include <flutter/event_channel.h>
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
@@ -14,6 +15,8 @@
 #include <vector>
 
 namespace usb_hid {
+
+class InputReportStreamHandler;
 
 struct HidDeviceInfo {
   std::string path;
@@ -60,6 +63,8 @@ class UsbHidPlugin : public flutter::Plugin {
   void StartReader(OpenHandle &handle);
   void StopAll();
   void EmitInputReport(const HidDeviceInfo &info, uint8_t report_id, const std::vector<uint8_t> &data);
+
+    friend class InputReportStreamHandler;
 
   std::mutex mutex_;
   int next_handle_id_ = 1;

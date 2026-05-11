@@ -7,6 +7,7 @@
 #include <setupapi.h>
 
 #include <flutter/event_channel.h>
+#include <flutter/event_stream_handler.h>
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
@@ -19,6 +20,28 @@
 #include <vector>
 
 namespace usb_hid {
+
+class InputReportStreamHandler : public flutter::StreamHandler<flutter::EncodableValue> {
+ public:
+  explicit InputReportStreamHandler(UsbHidPlugin *plugin) : plugin_(plugin) {}
+
+ protected:
+  std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> OnListenInternal(
+      const flutter::EncodableValue *arguments,
+      std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> &&events) override {
+    plugin_->input_report_sink_ = std::move(events);
+    return nullptr;
+  }
+
+  std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> OnCancelInternal(
+      const flutter::EncodableValue *arguments) override {
+    plugin_->input_report_sink_ = nullptr;
+    return nullptr;
+  }
+
+ private:
+  UsbHidPlugin *plugin_;
+};
 
 // static
 void UsbHidPlugin::RegisterWithRegistrar(
@@ -41,18 +64,7 @@ void UsbHidPlugin::RegisterWithRegistrar(
         plugin_pointer->HandleMethodCall(call, std::move(result));
       });
 
-  auto stream_handler = std::make_unique<flutter::StreamHandlerFunctions<flutter::EncodableValue>>(
-      [plugin_pointer](const flutter::EncodableValue *arguments,
-                       std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> &&events)
-          -> std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> {
-        plugin_pointer->input_report_sink_ = std::move(events);
-        return nullptr;
-      },
-      [plugin_pointer](const flutter::EncodableValue *arguments)
-          -> std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> {
-        plugin_pointer->input_report_sink_ = nullptr;
-        return nullptr;
-      });
+  auto stream_handler = std::make_unique<InputReportStreamHandler>(plugin_pointer);
 
   event_channel->SetStreamHandler(std::move(stream_handler));
 
@@ -65,6 +77,8 @@ UsbHidPlugin::~UsbHidPlugin() { StopAll(); }
 
 namespace {
 
+using HidStringGetter = BOOLEAN(__stdcall *)(HANDLE, PVOID, ULONG);
+
 std::string WideToUtf8(const std::wstring &input) {
   if (input.empty()) return {};
   int size_needed = WideCharToMultiByte(CP_UTF8, 0, input.c_str(), (int)input.size(), nullptr, 0, nullptr, nullptr);
@@ -73,7 +87,7 @@ std::string WideToUtf8(const std::wstring &input) {
   return str_to;
 }
 
-std::string HidString(HANDLE handle, NTSTATUS(__stdcall *getter)(HANDLE, PVOID, ULONG), ULONG max_len_chars = 256) {
+std::string HidString(HANDLE handle, HidStringGetter getter, ULONG max_len_chars = 256) {
   std::wstring buffer;
   buffer.resize(max_len_chars);
   if (getter(handle, buffer.data(), max_len_chars * sizeof(wchar_t))) {
@@ -312,7 +326,12 @@ std::vector<HidDeviceInfo> UsbHidPlugin::EnumerateDevices() {
       continue;
     }
 
-    std::string path(detail_data->DevicePath);
+        std::string path =
+    #ifdef UNICODE
+      WideToUtf8(detail_data->DevicePath);
+    #else
+      std::string(detail_data->DevicePath);
+    #endif
     HANDLE device_handle = CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE,
                                        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
                                        FILE_FLAG_OVERLAPPED, nullptr);
