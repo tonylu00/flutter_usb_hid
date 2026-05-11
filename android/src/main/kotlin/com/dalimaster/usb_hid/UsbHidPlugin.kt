@@ -30,6 +30,7 @@ class UsbHidPlugin :
 
     companion object {
         private const val ACTION_USB_PERMISSION = "com.dalimaster.usb_hid.USB_PERMISSION"
+        private const val USB_RECIP_INTERFACE = 0x01
     }
 
     private lateinit var methodChannel: MethodChannel
@@ -180,7 +181,7 @@ class UsbHidPlugin :
             result.error("permission_denied", "permission not granted", null)
             return
         }
-        val iface = target.interfaces.find { it.interfaceClass == UsbConstants.USB_CLASS_HID }
+        val iface = findHidInterface(target)
         if (iface == null) {
             result.error("no_interface", "HID interface not found", null)
             return
@@ -192,15 +193,7 @@ class UsbHidPlugin :
             return
         }
 
-        var inEp: UsbEndpoint? = null
-        var outEp: UsbEndpoint? = null
-        for (i in 0 until iface.endpointCount) {
-            val ep = iface.getEndpoint(i)
-            if (ep.type == UsbConstants.USB_ENDPOINT_XFER_INT) {
-                if (ep.direction == UsbConstants.USB_DIR_IN) inEp = ep
-                if (ep.direction == UsbConstants.USB_DIR_OUT) outEp = ep
-            }
-        }
+        val (inEp, outEp) = findInterruptEndpoints(iface)
 
         val handleId = nextHandleId++
         val handle = OpenHandle(handleId, target, connection, iface, inEp, outEp)
@@ -243,7 +236,7 @@ class UsbHidPlugin :
             return
         }
 
-        val reqType = UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_CLASS or UsbConstants.USB_RECIP_INTERFACE
+        val reqType = UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_CLASS or USB_RECIP_INTERFACE
         val value = (3 shl 8) or (reportId and 0xFF)
         val sent = handle.connection.controlTransfer(reqType, 0x09, value, handle.iface.id, buffer, buffer.size, 1000)
         if (sent < 0) {
@@ -260,7 +253,7 @@ class UsbHidPlugin :
         val buffer = ByteArray(data.size + 1)
         buffer[0] = reportId.toByte()
         System.arraycopy(data, 0, buffer, 1, data.size)
-        val reqType = UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_CLASS or UsbConstants.USB_RECIP_INTERFACE
+        val reqType = UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_CLASS or USB_RECIP_INTERFACE
         val value = (3 shl 8) or (reportId and 0xFF)
         val sent = handle.connection.controlTransfer(reqType, 0x09, value, handle.iface.id, buffer, buffer.size, 1000)
         if (sent < 0) {
@@ -276,7 +269,7 @@ class UsbHidPlugin :
         val length = call.argument<Int>("length") ?: 0
         val buffer = ByteArray(length + 1)
         buffer[0] = reportId.toByte()
-        val reqType = UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_CLASS or UsbConstants.USB_RECIP_INTERFACE
+        val reqType = UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_CLASS or USB_RECIP_INTERFACE
         val value = (3 shl 8) or (reportId and 0xFF)
         val read = handle.connection.controlTransfer(reqType, 0x01, value, handle.iface.id, buffer, buffer.size, 1000)
         if (read < 0) {
@@ -323,6 +316,34 @@ class UsbHidPlugin :
             handle.connection.releaseInterface(handle.iface)
             handle.connection.close()
         }
+    }
+
+    private fun findHidInterface(device: UsbDevice): UsbInterface? {
+        for (index in 0 until device.interfaceCount) {
+            val iface = device.getInterface(index)
+            if (iface.interfaceClass == UsbConstants.USB_CLASS_HID) {
+                return iface
+            }
+        }
+        return null
+    }
+
+    private fun findInterruptEndpoints(iface: UsbInterface): Pair<UsbEndpoint?, UsbEndpoint?> {
+        var inEndpoint: UsbEndpoint? = null
+        var outEndpoint: UsbEndpoint? = null
+        for (index in 0 until iface.endpointCount) {
+            val endpoint = iface.getEndpoint(index)
+            if (endpoint.type != UsbConstants.USB_ENDPOINT_XFER_INT) {
+                continue
+            }
+            if (endpoint.direction == UsbConstants.USB_DIR_IN) {
+                inEndpoint = endpoint
+            }
+            if (endpoint.direction == UsbConstants.USB_DIR_OUT) {
+                outEndpoint = endpoint
+            }
+        }
+        return inEndpoint to outEndpoint
     }
 
     private fun encodeDevice(device: UsbDevice, opened: Boolean): Map<String, Any?> {
