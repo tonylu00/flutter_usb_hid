@@ -6,7 +6,12 @@ import 'package:usb_hid/usb_hid.dart';
 import 'package:usb_hid/usb_hid_method_channel.dart';
 import 'package:usb_hid/usb_hid_platform_interface.dart';
 
-class MockUsbHidPlatform with MockPlatformInterfaceMixin implements UsbHidPlatform {
+class MockUsbHidPlatform
+    with MockPlatformInterfaceMixin
+    implements UsbHidPlatform {
+  @override
+  Future<bool> isDriverAvailable() async => true;
+
   @override
   Stream<HidInputReport> get inputReports => const Stream.empty();
 
@@ -21,21 +26,32 @@ class MockUsbHidPlatform with MockPlatformInterfaceMixin implements UsbHidPlatfo
   ) async => null;
 
   @override
-  Future<List<HidDeviceInfo>> listDevices({List<HidDeviceFilter>? filters}) async => const [];
+  Future<List<HidDeviceInfo>> listDevices({
+    List<HidDeviceFilter>? filters,
+  }) async => const [];
 
   @override
   Future<HidDeviceHandle> openDevice(HidDeviceInfo device) async =>
       HidDeviceHandle(deviceId: device.id, handle: 1);
 
   @override
-  Future<HidDeviceInfo?> requestDevice({required List<HidDeviceFilter> filters}) async => null;
+  Future<HidDeviceInfo?> requestDevice({
+    required List<HidDeviceFilter> filters,
+  }) async => null;
 
   @override
-  Future<void> sendFeatureReport(HidDeviceHandle handle, int reportId, Uint8List data) async {}
+  Future<void> sendFeatureReport(
+    HidDeviceHandle handle,
+    int reportId,
+    Uint8List data,
+  ) async {}
 
   @override
-  Future<int> sendOutputReport(HidDeviceHandle handle, int reportId, Uint8List data) async =>
-      data.length;
+  Future<int> sendOutputReport(
+    HidDeviceHandle handle,
+    int reportId,
+    Uint8List data,
+  ) async => data.length;
 }
 
 void main() {

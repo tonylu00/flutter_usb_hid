@@ -1,5 +1,5 @@
 name: usb_hid
-description: "Cross-platform USB HID (Windows, Android, macOS, Web via WebHID) plugin built on platform channels."
+description: "Cross-platform USB HID plugin for Windows, Android, iPadOS DriverKit, macOS, Linux, and WebHID."
 version: 0.1.0
 homepage: https://github.com/tonylu00/DALI-Toolkit/tree/feat-multi-window/packages/usb_hid
 
@@ -40,6 +40,8 @@ flutter:
     platforms:
       android:
         package: com.dalimaster.usb_hid
+        pluginClass: UsbHidPlugin
+      ios:
         pluginClass: UsbHidPlugin
       macos:
         pluginClass: UsbHidPlugin
