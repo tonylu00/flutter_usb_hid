@@ -482,6 +482,9 @@ void UsbHidPlugin::StartReader(OpenHandle &handle) {
         if (GetOverlappedResult(handle.file_handle, &ov, &read, FALSE) && read > 0) {
           uint8_t report_id = buffer.empty() ? 0 : buffer[0];
           buffer.resize(read);
+          // Win32 HID reads include the report ID at byte zero. The Dart API
+          // exposes it separately, matching IOHID and WebHID semantics.
+          buffer.erase(buffer.begin());
           EmitInputReport(handle.info, report_id, buffer);
         }
       } else {

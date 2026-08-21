@@ -9,6 +9,7 @@ private struct HidDeviceInfo {
   let productId: Int
   let usagePage: Int?
   let usage: Int?
+  let interfaceNumber: Int?
   let productName: String?
   let manufacturerName: String?
   let serialNumber: String?
@@ -115,7 +116,7 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
       return
     }
 
-    let status = IOHIDDeviceOpen(target.device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+    let status = IOHIDDeviceOpen(target.device, IOOptionBits(kIOHIDOptionsTypeNone))
     guard status == kIOReturnSuccess else {
       result(FlutterError(code: "open_failed", message: "IOHIDDeviceOpen failed", details: status))
       return
@@ -175,8 +176,7 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
       return
     }
 
-    var buffer = Data([UInt8(reportId)])
-    buffer.append(data.data)
+    let buffer = data.data
     let status = buffer.withUnsafeBytes { ptr -> IOReturn in
       guard let baseAddress = ptr.bindMemory(to: UInt8.self).baseAddress else {
       return kIOReturnBadArgument
@@ -206,8 +206,7 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
       return
     }
 
-    var buffer = Data(count: max(length + 1, 1))
-    buffer[0] = UInt8(reportId & 0xFF)
+    var buffer = Data(count: max(length, 1))
     var reportLength = buffer.count
     let status = buffer.withUnsafeMutableBytes { ptr -> IOReturn in
       guard let baseAddress = ptr.bindMemory(to: UInt8.self).baseAddress else {
@@ -236,8 +235,17 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     let productName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String
     let manufacturerName = IOHIDDeviceGetProperty(device, kIOHIDManufacturerKey as CFString) as? String
     let serialNumber = IOHIDDeviceGetProperty(device, kIOHIDSerialNumberKey as CFString) as? String
-    let locationId = (IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? Int) ?? 0
-    let id = "macos-\(vendorId)-\(productId)-\(locationId)"
+    let service = IOHIDDeviceGetService(device)
+    var registryEntryId: UInt64 = 0
+    IORegistryEntryGetRegistryEntryID(service, &registryEntryId)
+    let interfaceNumber = IORegistryEntrySearchCFProperty(
+      service,
+      kIOServicePlane,
+      "bInterfaceNumber" as CFString,
+      kCFAllocatorDefault,
+      IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)
+    ) as? Int
+    let id = "macos-\(String(registryEntryId, radix: 16))"
 
     return HidDeviceInfo(
       device: device,
@@ -246,6 +254,7 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
       productId: productId,
       usagePage: usagePage,
       usage: usage,
+      interfaceNumber: interfaceNumber,
       productName: productName,
       manufacturerName: manufacturerName,
       serialNumber: serialNumber
@@ -261,6 +270,7 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     ]
     if let usagePage = info.usagePage { map["usagePage"] = usagePage }
     if let usage = info.usage { map["usage"] = usage }
+    if let interfaceNumber = info.interfaceNumber { map["interfaceNumber"] = interfaceNumber }
     if let productName = info.productName { map["productName"] = productName }
     if let manufacturerName = info.manufacturerName { map["manufacturerName"] = manufacturerName }
     if let serialNumber = info.serialNumber { map["serialNumber"] = serialNumber }
@@ -296,10 +306,9 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
   private func identifier(for device: IOHIDDevice?) -> String {
     guard let device = device else { return "unknown" }
-    let vendorId = (IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int) ?? 0
-    let productId = (IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int) ?? 0
-    let locationId = (IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? Int) ?? 0
-    return "macos-\(vendorId)-\(productId)-\(locationId)"
+    var registryEntryId: UInt64 = 0
+    IORegistryEntryGetRegistryEntryID(IOHIDDeviceGetService(device), &registryEntryId)
+    return "macos-\(String(registryEntryId, radix: 16))"
   }
 
   private func stopAll() {

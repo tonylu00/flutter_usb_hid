@@ -2,16 +2,24 @@ import 'dart:typed_data';
 
 /// Basic filter used to select HID devices by vendor/product/usage fields.
 class HidDeviceFilter {
-  const HidDeviceFilter({this.vendorId, this.productId, this.usagePage, this.usage});
+  const HidDeviceFilter({
+    this.vendorId,
+    this.productId,
+    this.usagePage,
+    this.usage,
+  });
 
   final int? vendorId;
   final int? productId;
   final int? usagePage;
   final int? usage;
 
-  Map<String, Object?> toMap() =>
-      {'vendorId': vendorId, 'productId': productId, 'usagePage': usagePage, 'usage': usage}
-        ..removeWhere((_, value) => value == null);
+  Map<String, Object?> toMap() => {
+    'vendorId': vendorId,
+    'productId': productId,
+    'usagePage': usagePage,
+    'usage': usage,
+  }..removeWhere((_, value) => value == null);
 
   factory HidDeviceFilter.fromMap(Map<dynamic, dynamic> map) {
     return HidDeviceFilter(
@@ -89,10 +97,18 @@ class HidDeviceInfo {
 
 /// Input report payload emitted by HID devices.
 class HidInputReport {
-  const HidInputReport({required this.deviceId, required this.reportId, required this.data});
+  const HidInputReport({
+    required this.deviceId,
+    required this.reportId,
+    required this.data,
+  });
 
   final String deviceId;
+
+  /// Report ID supplied separately by the platform HID API.
   final int reportId;
+
+  /// Report payload without the report-ID prefix byte.
   final Uint8List data;
 }
 

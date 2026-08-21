@@ -222,9 +222,7 @@ class UsbHidPlugin :
         val handle = getHandle(call, result) ?: return
         val reportId = call.argument<Int>("reportId") ?: 0
         val data = call.argument<ByteArray>("data") ?: ByteArray(0)
-        val buffer = ByteArray(data.size + 1)
-        buffer[0] = reportId.toByte()
-        System.arraycopy(data, 0, buffer, 1, data.size)
+        val buffer = withReportId(reportId, data)
 
         handle.outEndpoint?.let { outEp ->
             val written = handle.connection.bulkTransfer(outEp, buffer, buffer.size, 1000)
@@ -250,9 +248,7 @@ class UsbHidPlugin :
         val handle = getHandle(call, result) ?: return
         val reportId = call.argument<Int>("reportId") ?: 0
         val data = call.argument<ByteArray>("data") ?: ByteArray(0)
-        val buffer = ByteArray(data.size + 1)
-        buffer[0] = reportId.toByte()
-        System.arraycopy(data, 0, buffer, 1, data.size)
+        val buffer = withReportId(reportId, data)
         val reqType = UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_CLASS or USB_RECIP_INTERFACE
         val value = (3 shl 8) or (reportId and 0xFF)
         val sent = handle.connection.controlTransfer(reqType, 0x09, value, handle.iface.id, buffer, buffer.size, 1000)
@@ -267,8 +263,8 @@ class UsbHidPlugin :
         val handle = getHandle(call, result) ?: return
         val reportId = call.argument<Int>("reportId") ?: 0
         val length = call.argument<Int>("length") ?: 0
-        val buffer = ByteArray(length + 1)
-        buffer[0] = reportId.toByte()
+        val buffer = ByteArray(length + if (reportId == 0) 0 else 1)
+        if (reportId != 0) buffer[0] = reportId.toByte()
         val reqType = UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_CLASS or USB_RECIP_INTERFACE
         val value = (3 shl 8) or (reportId and 0xFF)
         val read = handle.connection.controlTransfer(reqType, 0x01, value, handle.iface.id, buffer, buffer.size, 1000)
@@ -326,6 +322,14 @@ class UsbHidPlugin :
             }
         }
         return null
+    }
+
+    private fun withReportId(reportId: Int, data: ByteArray): ByteArray {
+        if (reportId == 0) return data
+        return ByteArray(data.size + 1).also { buffer ->
+            buffer[0] = reportId.toByte()
+            System.arraycopy(data, 0, buffer, 1, data.size)
+        }
     }
 
     private fun findInterruptEndpoints(iface: UsbInterface): Pair<UsbEndpoint?, UsbEndpoint?> {

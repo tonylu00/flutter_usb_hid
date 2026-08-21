@@ -248,13 +248,15 @@ static void usb_hid_plugin_handle_method_call(
     // Start input reader after handle is stored.
     handle->running.store(true);
     handle->reader = std::thread([self, handle]() {
-      const size_t kDefaultInputLen = 64;
+      // hidapi includes the report ID byte in addition to the report payload.
+      const size_t kDefaultInputLen = 65;
       while (handle->running.load()) {
         std::vector<uint8_t> buffer(kDefaultInputLen, 0);
         int res = hid_read_timeout(handle->device, buffer.data(), buffer.size(), 500);
         if (res > 0) {
           buffer.resize(static_cast<size_t>(res));
           uint8_t report_id = buffer.empty() ? 0 : buffer[0];
+          if (!buffer.empty()) buffer.erase(buffer.begin());
           EmitInputReport(self, handle->info, report_id, std::move(buffer));
         } else if (res == 0) {
           continue;
