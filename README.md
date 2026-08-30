@@ -58,5 +58,4 @@ await sub.cancel();
   picker.
 - A single host driver can expose serial or HID interfaces through the shared
   protocol. The DaliMaster app signs its driver only for Espressif vendor ID
-  `0x303A`; it does not claim Tridonic or KNX adapter vendor IDs.
-
+  `0x303A`; it does not claim DALI USB HID or KNX adapter vendor IDs.
