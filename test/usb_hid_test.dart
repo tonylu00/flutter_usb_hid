@@ -13,6 +13,9 @@ class MockUsbHidPlatform
   Future<bool> isDriverAvailable() async => true;
 
   @override
+  Future<Map<String, Object?>?> diagnostics(HidDeviceHandle handle) async => null;
+
+  @override
   Stream<HidInputReport> get inputReports => const Stream.empty();
 
   @override
