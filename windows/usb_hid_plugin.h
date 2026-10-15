@@ -7,6 +7,8 @@
 #include <flutter/plugin_registrar_windows.h>
 
 #include <atomic>
+#include <deque>
+#include <optional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -33,9 +35,19 @@ struct OpenHandle {
   int handle_id;
   HidDeviceInfo info;
   HANDLE file_handle;
-  uint16_t input_report_len;
+  uint16_t input_report_len = 0;
+  // HidP_GetCaps OutputReportByteLength (report id included): Windows
+  // refuses an output report WriteFile of any other length.
+  uint16_t output_report_len = 0;
   std::atomic<bool> running{false};
   std::thread reader;
+};
+
+// An input report read on a reader thread, waiting for the platform thread.
+struct PendingInputReport {
+  std::string device_id;
+  uint8_t report_id;
+  std::vector<uint8_t> data;
 };
 
 class UsbHidPlugin : public flutter::Plugin {
@@ -63,6 +75,8 @@ class UsbHidPlugin : public flutter::Plugin {
   void StartReader(OpenHandle &handle);
   void StopAll();
   void EmitInputReport(const HidDeviceInfo &info, uint8_t report_id, const std::vector<uint8_t> &data);
+  void DrainInputReports();
+  std::optional<LRESULT> HandleWindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 
     friend class InputReportStreamHandler;
 
@@ -70,6 +84,12 @@ class UsbHidPlugin : public flutter::Plugin {
   int next_handle_id_ = 1;
   std::unordered_map<int, std::unique_ptr<OpenHandle>> open_handles_;
   std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> input_report_sink_;
+  // Event sinks must be used on the platform thread: reader threads queue
+  // their reports and post kInputReportMessage to the top-level window.
+  flutter::PluginRegistrarWindows *registrar_ = nullptr;
+  int window_proc_id_ = -1;
+  HWND window_ = nullptr;
+  std::deque<PendingInputReport> pending_reports_;
 };
 
 }  // namespace usb_hid

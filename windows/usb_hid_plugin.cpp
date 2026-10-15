@@ -12,6 +12,7 @@
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
 
+#include <algorithm>
 #include <atomic>
 #include <codecvt>
 #include <memory>
@@ -68,12 +69,57 @@ void UsbHidPlugin::RegisterWithRegistrar(
 
   event_channel->SetStreamHandler(std::move(stream_handler));
 
+  plugin_pointer->registrar_ = registrar;
+  if (auto *view = registrar->GetView()) {
+    plugin_pointer->window_ = GetAncestor(view->GetNativeWindow(), GA_ROOT);
+  }
+  plugin_pointer->window_proc_id_ = registrar->RegisterTopLevelWindowProcDelegate(
+      [plugin_pointer](HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+        return plugin_pointer->HandleWindowProc(hwnd, message, wparam, lparam);
+      });
+
   registrar->AddPlugin(std::move(plugin));
 }
 
+namespace {
+// Posted by reader threads; drained on the platform thread.
+constexpr UINT kInputReportMessage = WM_APP + 0x4A1;
+// Queue bound per plugin: oldest reports are dropped beyond it.
+constexpr size_t kMaxPendingReports = 1024;
+// An output report that the device has not taken in this time is cancelled.
+constexpr DWORD kWriteTimeoutMs = 2000;
+}  // namespace
+
 UsbHidPlugin::UsbHidPlugin() {}
 
-UsbHidPlugin::~UsbHidPlugin() { StopAll(); }
+UsbHidPlugin::~UsbHidPlugin() {
+  StopAll();
+  if (registrar_ && window_proc_id_ >= 0) {
+    registrar_->UnregisterTopLevelWindowProcDelegate(window_proc_id_);
+  }
+}
+
+std::optional<LRESULT> UsbHidPlugin::HandleWindowProc(HWND, UINT message, WPARAM, LPARAM) {
+  if (message != kInputReportMessage) return std::nullopt;
+  DrainInputReports();
+  return 0;
+}
+
+void UsbHidPlugin::DrainInputReports() {
+  std::deque<PendingInputReport> reports;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    reports.swap(pending_reports_);
+  }
+  for (auto &r : reports) {
+    if (!input_report_sink_) return;
+    flutter::EncodableMap map;
+    map[flutter::EncodableValue("deviceId")] = flutter::EncodableValue(r.device_id);
+    map[flutter::EncodableValue("reportId")] = flutter::EncodableValue(static_cast<int>(r.report_id));
+    map[flutter::EncodableValue("data")] = flutter::EncodableValue(std::move(r.data));
+    input_report_sink_->Success(map);
+  }
+}
 
 namespace {
 
@@ -213,13 +259,50 @@ void UsbHidPlugin::HandleMethodCall(
         result->Error("not_open", "Handle not found", nullptr);
         return;
       }
-      std::vector<uint8_t> buffer;
-      buffer.reserve(bytes->size() + 1);
-      buffer.push_back(static_cast<uint8_t>(report_id));
-      buffer.insert(buffer.end(), bytes->begin(), bytes->end());
+      // Windows takes exactly OutputReportByteLength octets: the report id
+      // and the report padded with zeros.
+      const size_t report_len = (*handle_ptr)->output_report_len
+                                    ? (*handle_ptr)->output_report_len
+                                    : bytes->size() + 1;
+      if (bytes->size() + 1 > report_len) {
+        result->Error("invalid_args",
+                      "report of " + std::to_string(bytes->size()) + " octets is longer than the device's " +
+                          std::to_string(report_len - 1),
+                      nullptr);
+        return;
+      }
+      std::vector<uint8_t> buffer(report_len, 0);
+      buffer[0] = static_cast<uint8_t>(report_id);
+      std::copy(bytes->begin(), bytes->end(), buffer.begin() + 1);
+      // The handle is opened FILE_FLAG_OVERLAPPED (the reader thread), so the
+      // write needs its own OVERLAPPED; a synchronous WriteFile fails there.
+      HANDLE file = (*handle_ptr)->file_handle;
+      OVERLAPPED ov = {};
+      ov.hEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+      if (!ov.hEvent) {
+        result->Error("write_failed", "CreateEvent failed: error " + std::to_string(GetLastError()), nullptr);
+        return;
+      }
       DWORD written = 0;
-      if (!WriteFile((*handle_ptr)->file_handle, buffer.data(), static_cast<DWORD>(buffer.size()), &written, nullptr)) {
-        result->Error("write_failed", "WriteFile failed", nullptr);
+      BOOL ok = WriteFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), nullptr, &ov);
+      DWORD error = ok ? ERROR_SUCCESS : GetLastError();
+      bool timed_out = false;
+      if (ok || error == ERROR_IO_PENDING) {
+        if (!ok && WaitForSingleObject(ov.hEvent, kWriteTimeoutMs) != WAIT_OBJECT_0) {
+          timed_out = true;
+          CancelIoEx(file, &ov);
+        }
+        // Waits for completion or cancellation: the buffer stays valid until then.
+        ok = GetOverlappedResult(file, &ov, &written, TRUE);
+        error = ok ? ERROR_SUCCESS : GetLastError();
+      }
+      CloseHandle(ov.hEvent);
+      if (!ok) {
+        result->Error("write_failed",
+                      std::string(timed_out ? "WriteFile timed out" : "WriteFile failed") + ": error " +
+                          std::to_string(error) + ", " + std::to_string(buffer.size()) + " octets, report id " +
+                          std::to_string(report_id),
+                      nullptr);
         return;
       }
       result->Success(flutter::EncodableValue(static_cast<int>(written)));
@@ -446,6 +529,7 @@ std::unique_ptr<OpenHandle> UsbHidPlugin::OpenDevice(const std::string &path) {
       handle->info.usage_page = caps.UsagePage;
       handle->info.usage = caps.Usage;
       handle->input_report_len = caps.InputReportByteLength;
+      handle->output_report_len = caps.OutputReportByteLength;
     }
     HidD_FreePreparsedData(preparsed);
   }
@@ -488,7 +572,17 @@ void UsbHidPlugin::StartReader(OpenHandle &handle) {
           EmitInputReport(handle.info, report_id, buffer);
         }
       } else {
+        // Cancel, then wait until the read has really ended before the
+        // buffer and the OVERLAPPED go away; a report that completed just
+        // before the cancel is still delivered.
         CancelIoEx(handle.file_handle, &ov);
+        DWORD read = 0;
+        if (GetOverlappedResult(handle.file_handle, &ov, &read, TRUE) && read > 0) {
+          uint8_t report_id = buffer[0];
+          buffer.resize(read);
+          buffer.erase(buffer.begin());
+          EmitInputReport(handle.info, report_id, buffer);
+        }
       }
       CloseHandle(ov.hEvent);
     }
@@ -496,13 +590,15 @@ void UsbHidPlugin::StartReader(OpenHandle &handle) {
 }
 
 void UsbHidPlugin::EmitInputReport(const HidDeviceInfo &info, uint8_t report_id, const std::vector<uint8_t> &data) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!input_report_sink_) return;
-  flutter::EncodableMap map;
-  map[flutter::EncodableValue("deviceId")] = flutter::EncodableValue(info.path);
-  map[flutter::EncodableValue("reportId")] = flutter::EncodableValue(static_cast<int>(report_id));
-  map[flutter::EncodableValue("data")] = flutter::EncodableValue(data);
-  input_report_sink_->Success(map);
+  // Called on a reader thread: queue it for the platform thread.
+  HWND window = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (pending_reports_.size() >= kMaxPendingReports) pending_reports_.pop_front();
+    pending_reports_.push_back(PendingInputReport{info.path, report_id, data});
+    window = window_;
+  }
+  if (window) PostMessage(window, kInputReportMessage, 0, 0);
 }
 
 void UsbHidPlugin::StopAll() {
