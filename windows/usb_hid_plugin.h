@@ -76,7 +76,7 @@ class UsbHidPlugin : public flutter::Plugin {
   void StopAll();
   void EmitInputReport(const HidDeviceInfo &info, uint8_t report_id, const std::vector<uint8_t> &data);
   void DrainInputReports();
-  std::optional<LRESULT> HandleWindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
+  static LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 
     friend class InputReportStreamHandler;
 
@@ -85,9 +85,10 @@ class UsbHidPlugin : public flutter::Plugin {
   std::unordered_map<int, std::unique_ptr<OpenHandle>> open_handles_;
   std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> input_report_sink_;
   // Event sinks must be used on the platform thread: reader threads queue
-  // their reports and post kInputReportMessage to the top-level window.
-  flutter::PluginRegistrarWindows *registrar_ = nullptr;
-  int window_proc_id_ = -1;
+  // their reports and post kInputReportMessage to this plugin's own
+  // message-only window, created on the platform thread (the runner's view
+  // is not yet parented when plugins register, so the top-level window
+  // cannot be found then).
   HWND window_ = nullptr;
   std::deque<PendingInputReport> pending_reports_;
 };

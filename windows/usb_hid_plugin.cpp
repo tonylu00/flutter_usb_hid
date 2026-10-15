@@ -69,15 +69,6 @@ void UsbHidPlugin::RegisterWithRegistrar(
 
   event_channel->SetStreamHandler(std::move(stream_handler));
 
-  plugin_pointer->registrar_ = registrar;
-  if (auto *view = registrar->GetView()) {
-    plugin_pointer->window_ = GetAncestor(view->GetNativeWindow(), GA_ROOT);
-  }
-  plugin_pointer->window_proc_id_ = registrar->RegisterTopLevelWindowProcDelegate(
-      [plugin_pointer](HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-        return plugin_pointer->HandleWindowProc(hwnd, message, wparam, lparam);
-      });
-
   registrar->AddPlugin(std::move(plugin));
 }
 
@@ -90,19 +81,39 @@ constexpr size_t kMaxPendingReports = 1024;
 constexpr DWORD kWriteTimeoutMs = 2000;
 }  // namespace
 
-UsbHidPlugin::UsbHidPlugin() {}
+constexpr wchar_t kMessageWindowClass[] = L"UsbHidPluginMessageWindow";
 
-UsbHidPlugin::~UsbHidPlugin() {
-  StopAll();
-  if (registrar_ && window_proc_id_ >= 0) {
-    registrar_->UnregisterTopLevelWindowProcDelegate(window_proc_id_);
+UsbHidPlugin::UsbHidPlugin() {
+  // Created on the platform thread (plugin registration), so its messages
+  // are dispatched by the platform thread's message loop.
+  HINSTANCE instance = GetModuleHandle(nullptr);
+  WNDCLASSW window_class = {};
+  window_class.lpfnWndProc = &UsbHidPlugin::MessageWindowProc;
+  window_class.hInstance = instance;
+  window_class.lpszClassName = kMessageWindowClass;
+  RegisterClassW(&window_class);  // fails harmlessly if already registered
+  window_ = CreateWindowExW(0, kMessageWindowClass, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, nullptr);
+  if (window_) {
+    SetWindowLongPtr(window_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
   }
 }
 
-std::optional<LRESULT> UsbHidPlugin::HandleWindowProc(HWND, UINT message, WPARAM, LPARAM) {
-  if (message != kInputReportMessage) return std::nullopt;
-  DrainInputReports();
-  return 0;
+UsbHidPlugin::~UsbHidPlugin() {
+  StopAll();
+  if (window_) {
+    SetWindowLongPtr(window_, GWLP_USERDATA, 0);
+    DestroyWindow(window_);
+    window_ = nullptr;
+  }
+}
+
+LRESULT CALLBACK UsbHidPlugin::MessageWindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+  if (message == kInputReportMessage) {
+    auto *plugin = reinterpret_cast<UsbHidPlugin *>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+    if (plugin) plugin->DrainInputReports();
+    return 0;
+  }
+  return DefWindowProcW(hwnd, message, wparam, lparam);
 }
 
 void UsbHidPlugin::DrainInputReports() {
