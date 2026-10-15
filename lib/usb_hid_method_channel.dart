@@ -78,6 +78,21 @@ class MethodChannelUsbHid extends UsbHidPlatform {
   }
 
   @override
+  Future<Map<String, Object?>?> diagnostics(HidDeviceHandle handle) async {
+    try {
+      final map = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'getDiagnostics',
+        {'handle': handle.handle},
+      );
+      return map?.map((k, v) => MapEntry('$k', v));
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  @override
   Future<int> sendOutputReport(
     HidDeviceHandle handle,
     int reportId,

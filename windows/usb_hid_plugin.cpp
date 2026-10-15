@@ -123,7 +123,11 @@ void UsbHidPlugin::DrainInputReports() {
     reports.swap(pending_reports_);
   }
   for (auto &r : reports) {
-    if (!input_report_sink_) return;
+    if (!input_report_sink_) {
+      reports_dropped_.fetch_add(1);
+      continue;
+    }
+    reports_delivered_.fetch_add(1);
     flutter::EncodableMap map;
     map[flutter::EncodableValue("deviceId")] = flutter::EncodableValue(r.device_id);
     map[flutter::EncodableValue("reportId")] = flutter::EncodableValue(static_cast<int>(r.report_id));
@@ -242,6 +246,43 @@ void UsbHidPlugin::HandleMethodCall(
         CloseHandle(owned->file_handle);
       }
       result->Success();
+      return;
+    }
+
+    if (method_name == "getDiagnostics") {
+      if (!args) {
+        result->Error("invalid_args", "Expected handle", nullptr);
+        return;
+      }
+      int handle = std::get<int32_t>(args->at(flutter::EncodableValue("handle")));
+      flutter::EncodableMap map;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = open_handles_.find(handle);
+        if (it == open_handles_.end() || !it->second) {
+          result->Error("not_open", "Handle not found", nullptr);
+          return;
+        }
+        const auto &h = *it->second;
+        auto put = [&map](const char *key, int64_t value) {
+          map[flutter::EncodableValue(key)] = flutter::EncodableValue(value);
+        };
+        put("inputReportLength", h.input_report_len);
+        put("outputReportLength", h.output_report_len);
+        put("readsOk", h.reads_ok.load());
+        put("readTimeouts", h.read_timeouts.load());
+        put("readErrors", h.read_errors.load());
+        put("lastReadError", h.last_read_error.load());
+        put("readerStopped", h.reader_stopped.load() ? 1 : 0);
+        put("reportsPosted", reports_posted_.load());
+        put("reportsDelivered", reports_delivered_.load());
+        put("reportsDropped", reports_dropped_.load());
+        put("postFailures", post_failures_.load());
+        put("messageWindow", window_ ? 1 : 0);
+        put("sinkListening", input_report_sink_ ? 1 : 0);
+        put("pendingReports", static_cast<int64_t>(pending_reports_.size()));
+      }
+      result->Success(map);
       return;
     }
 
@@ -567,14 +608,25 @@ void UsbHidPlugin::StartReader(OpenHandle &handle) {
       if (!ReadFile(handle.file_handle, buffer.data(), static_cast<DWORD>(buffer.size()), nullptr, &ov)) {
         auto err = GetLastError();
         if (err != ERROR_IO_PENDING) {
+          handle.last_read_error.store(err);
+          handle.read_errors.fetch_add(1);
           CloseHandle(ov.hEvent);
-          break;
+          if (!handle.running.load()) break;
+          // A transient failure must not end the reader for good.
+          Sleep(20);
+          continue;
         }
       }
       DWORD wait = WaitForSingleObject(ov.hEvent, 500);
       if (wait == WAIT_OBJECT_0) {
         DWORD read = 0;
-        if (GetOverlappedResult(handle.file_handle, &ov, &read, FALSE) && read > 0) {
+        BOOL got = GetOverlappedResult(handle.file_handle, &ov, &read, FALSE);
+        if (!got) {
+          handle.last_read_error.store(GetLastError());
+          handle.read_errors.fetch_add(1);
+        }
+        if (got && read > 0) {
+          handle.reads_ok.fetch_add(1);
           uint8_t report_id = buffer.empty() ? 0 : buffer[0];
           buffer.resize(read);
           // Win32 HID reads include the report ID at byte zero. The Dart API
@@ -586,9 +638,11 @@ void UsbHidPlugin::StartReader(OpenHandle &handle) {
         // Cancel, then wait until the read has really ended before the
         // buffer and the OVERLAPPED go away; a report that completed just
         // before the cancel is still delivered.
+        handle.read_timeouts.fetch_add(1);
         CancelIoEx(handle.file_handle, &ov);
         DWORD read = 0;
         if (GetOverlappedResult(handle.file_handle, &ov, &read, TRUE) && read > 0) {
+          handle.reads_ok.fetch_add(1);
           uint8_t report_id = buffer[0];
           buffer.resize(read);
           buffer.erase(buffer.begin());
@@ -597,6 +651,7 @@ void UsbHidPlugin::StartReader(OpenHandle &handle) {
       }
       CloseHandle(ov.hEvent);
     }
+    handle.reader_stopped.store(true);
   });
 }
 
@@ -609,7 +664,8 @@ void UsbHidPlugin::EmitInputReport(const HidDeviceInfo &info, uint8_t report_id,
     pending_reports_.push_back(PendingInputReport{info.path, report_id, data});
     window = window_;
   }
-  if (window) PostMessage(window, kInputReportMessage, 0, 0);
+  reports_posted_.fetch_add(1);
+  if (!window || !PostMessage(window, kInputReportMessage, 0, 0)) post_failures_.fetch_add(1);
 }
 
 void UsbHidPlugin::StopAll() {

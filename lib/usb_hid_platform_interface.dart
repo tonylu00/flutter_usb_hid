@@ -26,6 +26,11 @@ abstract class UsbHidPlatform extends PlatformInterface {
   /// this with a DriverKit service probe.
   Future<bool> isDriverAvailable() async => true;
 
+  /// Transport counters of an open device for troubleshooting (reads,
+  /// read errors, delivered and dropped reports); null where a platform
+  /// has none.
+  Future<Map<String, Object?>?> diagnostics(HidDeviceHandle handle) async => null;
+
   /// Enumerate already-permitted HID devices.
   Future<List<HidDeviceInfo>> listDevices({List<HidDeviceFilter>? filters});
 

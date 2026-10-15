@@ -67,5 +67,8 @@ class HidDevice {
   Stream<HidInputReport> get inputReports =>
       _platform.inputReports.where((event) => event.deviceId == info.id);
 
+  /// Transport counters for troubleshooting; null where unsupported.
+  Future<Map<String, Object?>?> diagnostics() => _platform.diagnostics(handle);
+
   Future<void> close() => _platform.closeDevice(handle);
 }

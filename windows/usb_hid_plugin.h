@@ -39,6 +39,12 @@ struct OpenHandle {
   // HidP_GetCaps OutputReportByteLength (report id included): Windows
   // refuses an output report WriteFile of any other length.
   uint16_t output_report_len = 0;
+  // Troubleshooting counters (getDiagnostics).
+  std::atomic<uint32_t> reads_ok{0};
+  std::atomic<uint32_t> read_timeouts{0};
+  std::atomic<uint32_t> read_errors{0};
+  std::atomic<uint32_t> last_read_error{0};
+  std::atomic<bool> reader_stopped{false};
   std::atomic<bool> running{false};
   std::thread reader;
 };
@@ -90,6 +96,10 @@ class UsbHidPlugin : public flutter::Plugin {
   // is not yet parented when plugins register, so the top-level window
   // cannot be found then).
   HWND window_ = nullptr;
+  std::atomic<uint32_t> reports_posted_{0};
+  std::atomic<uint32_t> reports_delivered_{0};
+  std::atomic<uint32_t> reports_dropped_{0};
+  std::atomic<uint32_t> post_failures_{0};
   std::deque<PendingInputReport> pending_reports_;
 };
 
