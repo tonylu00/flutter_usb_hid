@@ -39,11 +39,16 @@ public class UsbHidPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
     super.init()
     IOHIDManagerSetDeviceMatching(manager, nil)
+    // Without a run loop the manager never processes removal and arrival, so
+    // after a device re-enumerates it keeps listing a stale entry that cannot
+    // be opened until the app restarts.
+    IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
     IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
   }
 
   deinit {
     stopAll()
+    IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
     IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
   }
 
