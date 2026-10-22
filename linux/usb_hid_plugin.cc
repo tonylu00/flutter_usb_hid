@@ -1,4 +1,5 @@
 #include "include/usb_hid/usb_hid_plugin.h"
+#include "usb_hid_plugin_private.h"
 
 #include <flutter_linux/flutter_linux.h>
 #include <hidapi/hidapi.h>
@@ -15,6 +16,18 @@
 
 #define USB_HID_PLUGIN(obj) \
   (G_TYPE_CHECK_INSTANCE_CAST((obj), usb_hid_plugin_get_type(), UsbHidPlugin))
+
+// hidapi strings are wchar_t, which is UTF-32 on Linux (not UTF-16).
+std::string usb_hid_wide_to_utf8(const wchar_t* input) {
+  static_assert(sizeof(wchar_t) == sizeof(gunichar), "wchar_t must be UCS-4 on Linux");
+  if (!input) return {};
+  glong bytes_written = 0;
+  gchar* utf8 = g_ucs4_to_utf8(reinterpret_cast<const gunichar*>(input), -1, nullptr, &bytes_written, nullptr);
+  if (!utf8) return {};
+  std::string result(utf8, static_cast<size_t>(bytes_written));
+  g_free(utf8);
+  return result;
+}
 
 namespace {
 
@@ -38,15 +51,7 @@ struct OpenHandle {
   std::thread reader;
 };
 
-std::string WideToUtf8(const wchar_t* input) {
-  if (!input) return {};
-  gsize bytes_written = 0;
-  gchar* utf8 = g_utf16_to_utf8(reinterpret_cast<const gunichar2*>(input), -1, nullptr, &bytes_written, nullptr);
-  if (!utf8) return {};
-  std::string result(utf8, utf8 + bytes_written);
-  g_free(utf8);
-  return result;
-}
+std::string WideToUtf8(const wchar_t* input) { return usb_hid_wide_to_utf8(input); }
 
 HidDeviceInfo DeviceInfoFromNode(const hid_device_info* node) {
   HidDeviceInfo info;
@@ -329,8 +334,8 @@ static void usb_hid_plugin_handle_method_call(
     }
     int handle_id = fl_value_get_int(handle_value);
     int report_id = fl_value_get_int(report_id_value);
-    size_t data_len = 0;
-    const uint8_t* data = fl_value_get_uint8_list(data_value, &data_len);
+    const size_t data_len = fl_value_get_length(data_value);
+    const uint8_t* data = fl_value_get_uint8_list(data_value);
 
     std::shared_ptr<OpenHandle> handle;
     {
@@ -377,8 +382,8 @@ static void usb_hid_plugin_handle_method_call(
     }
     int handle_id = fl_value_get_int(handle_value);
     int report_id = fl_value_get_int(report_id_value);
-    size_t data_len = 0;
-    const uint8_t* data = fl_value_get_uint8_list(data_value, &data_len);
+    const size_t data_len = fl_value_get_length(data_value);
+    const uint8_t* data = fl_value_get_uint8_list(data_value);
 
     std::shared_ptr<OpenHandle> handle;
     {
